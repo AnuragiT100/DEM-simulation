@@ -1,5 +1,3 @@
-
-
 """
 bearing_capacity_test.py
 ------------------------
@@ -16,6 +14,7 @@ from yade import FrictMat, ForceResetter, InsertionSortCollider, InteractionLoop
     Ig2_Sphere_Sphere_ScGeom, Ig2_Box_Sphere_ScGeom, Ip2_FrictMat_FrictMat_FrictPhys, \
     Law2_ScGeom_FrictPhys_CundallStrack, NewtonIntegrator, PyRunner, PWaveTimeStep
 from math import radians
+from time import sleep
 
 # --- Material definitions ---
 granularSoil = FrictMat(young=1e7, poisson=0.3, frictionAngle=radians(30), density=2600, label='granular')
@@ -25,7 +24,7 @@ plateMat = FrictMat(young=2e8, poisson=0.25, frictionAngle=0, density=7850, labe
 # --- Choose soil type ---
 # For BH-5 (granular), use granularSoil
 # For BH-6 (clayey/mixed), use clayeySoil
-soilMat = granularSoil  # Change to clayeySoil for BH-6
+soilMat = granularSoil  # Change to clayeySoil for BH-6 if you want
 
 # Add materials to simulation
 O.materials.append(granularSoil)
@@ -45,6 +44,15 @@ plateId = O.bodies.append(plate)
 load = -1e4  # Newtons (negative for downward force)
 O.forces.setPermF(plateId, (0, 0, load))
 
+# --- Define what to plot ---
+plot.plots = {'step': ('displacement',)}
+
+# --- Data recording function ---
+def recordData():
+    dispZ = O.bodies[plateId].state.displ()[2]  # vertical displacement of plate
+    plot.addData(step=O.iter, displacement=-dispZ)  # negative to show settlement as positive
+    sleep(0.005)  # slows simulation so visualization is smooth
+
 # --- Define simulation engines ---
 O.engines = [
     ForceResetter(),
@@ -55,22 +63,21 @@ O.engines = [
         [Law2_ScGeom_FrictPhys_CundallStrack()]
     ),
     NewtonIntegrator(gravity=(0, 0, -9.81), damping=0.4),
-    PyRunner(iterPeriod=100, command='recordData()'),
+    PyRunner(iterPeriod=100, command='recordData()'),  # call recordData every 100 steps
 ]
 
 # --- Set time step ---
 O.dt = 0.5 * PWaveTimeStep()
 
-# --- Data recording function ---
-def recordData():
-    dispZ = O.bodies[plateId].state.displ()[2]  # vertical displacement of plate
-    plot.addData(step=O.iter, displacement=-dispZ)  # negative to show settlement as positive
+# --- Run simulation with live GUI ---
+O.run()
 
-# --- Start simulation ---
-O.run(5000, True)  # Run 5000 steps or until user stops
+# --- After you stop simulation manually, you can save results in the GUI console ---
+# plot.saveDataTxt('bearing_capacity_results.txt')
+# plot.saveFig('bearing_capacity_plot.png')
 
-# --- Plot results at the end ---
-qt.Controller().show()
-plot.saveDataTxt('bearing_capacity_results.txt')
-plot.saveFig('bearing_capacity_plot.png')
+# --- To keep GUI open ---
+qt.Controller()
+
+
 
