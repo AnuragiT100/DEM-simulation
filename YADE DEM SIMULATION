@@ -1,73 +1,71 @@
-"""
-bearing_capacity_test.py
-------------------------
-Simple YADE simulation for preliminary plate load test
-to estimate bearing capacity trends for borehole soils BH-5 (granular)
-and BH-6 (clayey).
+from yade import pack, qt, plot, utils, O
+import os
 
-Author: Anuragi Thapa
-Date-2082-03-16
-"""
+# Output directory
+output_dir = "/home/vision/Desktop/BH-5"
+if not os.path.exists(output_dir):
+    os.makedirs(output_dir)
 
-from yade import pack, plot, qt, utils
-from yade import FrictMat, ForceResetter, InsertionSortCollider, InteractionLoop, \
-    Ig2_Sphere_Sphere_ScGeom, Ig2_Box_Sphere_ScGeom, Ip2_FrictMat_FrictMat_FrictPhys, \
-    Law2_ScGeom_FrictPhys_CundallStrack, NewtonIntegrator, PyRunner, PWaveTimeStep
-from math import radians
+O.reset()
 
-# --- Material definitions ---
-granularSoil = FrictMat(young=1e7, poisson=0.3, frictionAngle=radians(30), density=2600, label='granular')
-clayeySoil = FrictMat(young=1e6, poisson=0.4, frictionAngle=radians(20), density=1800, label='clayey')
-plateMat = FrictMat(young=2e8, poisson=0.25, frictionAngle=0, density=7850, label='plate')
+# Material - granular soil (denser and stiffer)
+mat = O.materials.append(FrictMat(young=1e8, poisson=0.3, frictionAngle=0.6))
 
-# --- Choose soil type ---
-# For BH-5 (granular), use granularSoil
-# For BH-6 (clayey/mixed), use clayeySoil
-soilMat = granularSoil  # Change to clayeySoil for BH-6
-
-# Add materials to simulation
-O.materials.append(granularSoil)
-O.materials.append(clayeySoil)
-O.materials.append(plateMat)
-
-# --- Create soil packing ---
+# Particle packing for granular soil (larger and more uniform particles)
 sp = pack.SpherePack()
-sp.makeCloud((0, 0, 0), (1, 1, 0.5), rMean=0.02, rRelFuzz=0.3, num=5000)
-sp.toSimulation(material=soilMat)
+sp.makeCloud((0,0,0), (0.2,0.2,0.15), rMean=0.005, rRelFuzz=0.1)
+sp.toSimulation(material=mat)
 
-# --- Create rigid plate on top ---
-plate = utils.box(center=(0.5, 0.5, 0.55), extents=(0.2, 0.2, 0.01), fixed=True, wire=True, material=plateMat)
-plateId = O.bodies.append(plate)
+# Fixed bottom box
+bottom = utils.box(center=(0.1,0.1,-0.005), extents=(0.2,0.2,0.01), fixed=True)
+O.bodies.append(bottom)
 
-# --- Apply constant downward load (plate pressure) ---
-load = -1e4  # Newtons (negative for downward force)
-O.forces.setPermF(plateId, (0, 0, load))
+# Plate placed slightly above to ensure early contact
+plate = utils.box(center=(0.1,0.1,0.148), extents=(0.1,0.1,0.005), fixed=False)
+plateID = O.bodies.append(plate)
 
-# --- Define simulation engines ---
+# Apply downward velocity to simulate loading
+O.bodies[plateID].state.vel = (0, 0, -0.1)
+
+# Initial plate height for settlement calculation
+initialHeight = O.bodies[plateID].state.pos[2]
+
+# Data container
+settlements = []
+
+def record():
+    dz = initialHeight - O.bodies[plateID].state.pos[2]
+    settlements.append((O.iter, dz))
+    plot.addData(i=O.iter, settlement=dz)
+
+def stop():
+    if O.iter > 20000:
+        with open(output_dir + "/settlement_vs_iter.txt", "w") as f:
+            f.write("iteration,settlement\n")
+            for i, s in settlements:
+                f.write(f"{i},{s}\n")
+        O.pause()
+
 O.engines = [
     ForceResetter(),
-    InsertionSortCollider([Bo1_Sphere_Aabb(), Bo1_Box_Aabb()]),
+    InsertionSortCollider(),
     InteractionLoop(
         [Ig2_Sphere_Sphere_ScGeom(), Ig2_Box_Sphere_ScGeom()],
         [Ip2_FrictMat_FrictMat_FrictPhys()],
         [Law2_ScGeom_FrictPhys_CundallStrack()]
     ),
-    NewtonIntegrator(gravity=(0, 0, -9.81), damping=0.4),
-    PyRunner(iterPeriod=100, command='recordData()'),
+    NewtonIntegrator(gravity=(0,0,-9.81), damping=0.15),
+    PyRunner(iterPeriod=50, command='record()'),
+    PyRunner(iterPeriod=100, command='stop()')
 ]
 
-# --- Set time step ---
-O.dt = 0.5 * PWaveTimeStep()
+# Plotting settlement vs iteration
+plot.plots = {'i': ('settlement',)}
+plot.plot()
 
-# --- Data recording function ---
-def recordData():
-    dispZ = O.bodies[plateId].state.displ()[2]  # vertical displacement of plate
-    plot.addData(step=O.iter, displacement=-dispZ)  # negative to show settlement as positive
+qt.Controller()
+qt.View()
 
-# --- Start simulation ---
-O.run(5000, True)  # Run 5000 steps or until user stops
-
-# --- Plot results at the end ---
-qt.Controller().show()
-plot.saveDataTxt('bearing_capacity_results.txt')
-plot.saveFig('bearing_capacity_plot.png')
+# Time step
+O.dt = 1e-5
+O.run()
