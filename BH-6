@@ -1,6 +1,8 @@
+
 from yade import pack, qt, plot, utils, O
 import os
 
+# Output directory for BH-6
 output_dir = "/home/vision/Desktop/BH-6"
 if not os.path.exists(output_dir):
     os.makedirs(output_dir)
@@ -10,35 +12,33 @@ O.reset()
 # Material - softer clay-like properties
 mat = O.materials.append(FrictMat(young=1e6, poisson=0.4, frictionAngle=0.25))
 
-# Particle packing for clay (same domain)
+# Particle packing for clay
 sp = pack.SpherePack()
-sp.makeCloud((0,0,0), (0.2,0.2,0.15), rMean=0.003, rRelFuzz=0.2)  # smaller particles for clay
+sp.makeCloud((0,0,0), (0.2,0.2,0.15), rMean=0.003, rRelFuzz=0.2)
 sp.toSimulation(material=mat)
 
 # Fixed bottom box
 bottom = utils.box(center=(0.1,0.1,-0.005), extents=(0.2,0.2,0.01), fixed=True)
 O.bodies.append(bottom)
 
-# Plate slightly inside top particles for contact
+# Loading plate
 plate = utils.box(center=(0.1,0.1,0.148), extents=(0.1,0.1,0.005), fixed=False)
 plateID = O.bodies.append(plate)
+O.bodies[plateID].state.vel = (0, 0, -0.01)
 
-# Apply downward velocity
-O.bodies[plateID].state.vel = (0, 0, -0.1)
-
+# Initial height for settlement
 initialHeight = O.bodies[plateID].state.pos[2]
 
-# Containers for data
+# Only settlement data
 settlements = []
 
 def record():
     dz = initialHeight - O.bodies[plateID].state.pos[2]
     settlements.append((O.iter, dz))
-    plot.addData(i=O.iter, settlement=dz)
 
 def stop():
     if O.iter > 20000:
-        with open(output_dir + "/settlement_vs_iter.txt", "w") as f:
+        with open(output_dir + "/settlement.txt", "w") as f:
             f.write("iteration,settlement\n")
             for i, s in settlements:
                 f.write(f"{i},{s}\n")
